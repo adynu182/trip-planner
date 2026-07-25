@@ -6,7 +6,7 @@ import {
 import { state } from './state.js';
 import { COLORS, genId, safeColor } from './constants.js';
 import { saveUserData, getDeviceId } from './storage.js';
-import { showToast, showConnectionStatus, renderMembers, updateDistances, cancelFollow } from './ui.js';
+import { showToast, showConnectionStatus, renderMembers, updateDistances, cancelFollow, recomputeMemberNumbers } from './ui.js';
 import { initMap, updateMarker, removeMarker } from './map.js';
 import { startGPS } from './gps.js';
 import { getSelectedRoomId, renderActiveRoomInfo } from './room.js';
@@ -224,11 +224,6 @@ export function startSession() {
     }
   }, getCurrentMapStyleUrl());
 
-  // Pre-assign nomor supaya GPS pertama sudah punya nomor
-  if (!state.memberNumbers[state.myId]) {
-    state.memberNumbers[state.myId] = state.nextMemberNumber++;
-  }
-
   // Tulis presence ke Firebase + auto-hapus saat disconnect
   const myRef = ref(db, `rooms/${state.roomId}/members/${state.myId}`);
   set(myRef, {
@@ -239,6 +234,7 @@ export function startSession() {
     lat:      null,
     lng:      null,
     ts:       serverTimestamp(),
+    joinedAt: serverTimestamp(), // ← dasar urutan nomor anggota (recomputeMemberNumbers di ui.js); TIDAK disentuh writeLocation()
     deviceId: getDeviceId(),
   });
   onDisconnect(myRef).remove();
@@ -257,14 +253,13 @@ export function startSession() {
       }
     });
 
-    // Handle anggota yang bergabung / update data
+    // Handle anggota yang bergabung / update data (BELUM render marker di
+    // sini — nomor anggota harus final dulu lewat recomputeMemberNumbers()
+    // di bawah, baru marker/label boleh dibaca/digambar).
     Object.entries(data).forEach(([uid, m]) => {
       if (!state.members[uid] && uid !== state.myId) {
         showToast(`${m.emoji || '🧑'} ${m.name || 'Anggota'} bergabung!`);
         state.trailPts[uid] = [];
-      }
-      if (!state.memberNumbers[uid]) {
-        state.memberNumbers[uid] = state.nextMemberNumber++;
       }
 
       // OFFLINE GUARD: Firebase bisa kirim data parsial saat reconnect.
@@ -278,6 +273,17 @@ export function startSession() {
         color: safeColor(m.color ?? prev.color ?? COLORS[0]), // FIX: validasi hex
         isMe:  uid === state.myId,
       };
+      // Simpan joinedAt asli kita — dipakai lagi di reconnect handler
+      // di bawah supaya nomor gak "loncat ke belakang" tiap koneksi putus-nyambung.
+      if (uid === state.myId && m.joinedAt) state.myJoinedAt = m.joinedAt;
+    });
+
+    // Nomor dihitung ULANG dari nol berdasar joinedAt tiap kali data berubah —
+    // hasilnya pasti identik di semua device (lihat ui.js untuk alasannya).
+    recomputeMemberNumbers();
+
+    // Baru sekarang render/gambar marker — nomornya sudah final.
+    Object.entries(data).forEach(([uid, m]) => {
       if (m.lat && m.lng) updateMarker(uid);
     });
 
@@ -302,6 +308,7 @@ export function startSession() {
         lat:      state.myLat || null,
         lng:      state.myLng || null,
         ts:       serverTimestamp(),
+        joinedAt: state.myJoinedAt ?? serverTimestamp(), // pertahankan urutan nomor asli; fallback cuma buat first-connect
         deviceId: getDeviceId(),
       });
       onDisconnect(myRef).remove();
@@ -336,10 +343,10 @@ export function startOfflineNav() {
   state.members[state.myId] = {
     name: state.myName, emoji: state.myEmoji, color: state.myColor,
     lat: null, lng: null, sharing: true, isMe: true,
+    joinedAt: Date.now(), // gak ada Firebase di mode ini, tapi tetap diisi biar
+                          // recomputeMemberNumbers() (ui.js) bisa dipakai apa adanya
   };
-  if (!state.memberNumbers[state.myId]) {
-    state.memberNumbers[state.myId] = state.nextMemberNumber++;
-  }
+  recomputeMemberNumbers();
 
   state.isTabActive = true;
   if (state.broadcastChannel) {

@@ -15,6 +15,7 @@ export const state = {
   roomId:   null,
   sharingOn: true,
   offlineMode: false, // true = mode navigasi tanpa room/Firebase (lihat startOfflineNav di session.js)
+  myJoinedAt: null,   // cache timestamp `joinedAt` asli dari Firebase, dipakai biar nomor gak reset saat reconnect
 
   // ── GPS ──────────────────────────────────────────────────────────
   watchId:       null,   // ID dari watchPosition (untuk clearWatch)
@@ -48,8 +49,10 @@ export const state = {
   markers:       {},     // uid → maplibregl.Marker (HTML marker)
   trails:        {},     // uid → true jika trail source/layer sudah ditambahkan
   trailPts:      {},     // uid → Array<{lat, lng}>
-  memberNumbers: {},     // uid → nomor urut (1, 2, 3...)
-  nextMemberNumber: 1,
+  memberNumbers: {},     // uid → nomor urut, dihitung ulang dari 0 tiap update anggota
+                          // (lihat recomputeMemberNumbers() di ui.js) — SENGAJA gak ada
+                          // counter lokal di sini, biar semua device selalu hasilin
+                          // angka yang sama persis dari data yang sama.
 
   // ── Tab management (BroadcastChannel) ────────────────────────────
   broadcastChannel: null,

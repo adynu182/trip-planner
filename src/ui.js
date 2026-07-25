@@ -1,6 +1,28 @@
 import { state } from './state.js';
 import { sanitize } from './constants.js';
 
+// ─── Nomor urut anggota — dihitung ULANG dari nol tiap kali dipanggil ──
+// FIX: sebelumnya tiap client punya counter lokal sendiri (nextMemberNumber)
+// dan langsung nomorin diri-sendiri "1" begitu sesi mulai, SEBELUM tau
+// anggota lain yang sudah ada duluan. Akibatnya tiap orang lihat nomor
+// yang beda (masing-masing ngerasa dirinya "1").
+// Sekarang: nomor = urutan `joinedAt` (timestamp gabung asli dari Firebase,
+// TIDAK pernah berubah walau lokasi update terus). Karena semua device
+// baca `joinedAt` yang SAMA dari server, urutan hasilnya otomatis identik
+// di semua HP — gak butuh koordinasi lokal sama sekali.
+export function recomputeMemberNumbers() {
+  const sorted = Object.entries(state.members).sort(([uidA, a], [uidB, b]) => {
+    const ta = a.joinedAt ?? 0;
+    const tb = b.joinedAt ?? 0;
+    if (ta !== tb) return ta - tb;
+    return uidA < uidB ? -1 : uidA > uidB ? 1 : 0; // tie-break biar selalu deterministik
+  });
+
+  const numbers = {};
+  sorted.forEach(([uid], i) => { numbers[uid] = i + 1; });
+  state.memberNumbers = numbers;
+}
+
 // ─── Toast notification ───────────────────────────────────────────
 export function showToast(msg) {
   const t = document.getElementById('toast');
